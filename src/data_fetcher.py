@@ -17,7 +17,7 @@ BIG_CITIES = [
 class TrafficFetcher:
     def __init__(self):
         self.db_path = "data/traffic_history.db"
-        # ÇİFT CEPHANE SİSTEMİ: İki anahtarı da listeye alıyoruz
+        # Store both API keys for failover mechanism
         self.api_keys = [
             os.getenv("TOMTOM_API_KEY_1"),
             os.getenv("TOMTOM_API_KEY_2")
@@ -41,18 +41,18 @@ class TrafficFetcher:
         conn.commit()
         conn.close()
 
-    # O anki aktif API anahtarını getirir
+    # Retrieve the currently active API key
     def get_current_key(self):
         return self.api_keys[self.active_key_index]
 
-    # Kota dolduğunda sistemi yedek hesaba geçirir
+    # Switch to the backup API key when quota is exceeded
     def switch_key(self):
         if self.active_key_index < len(self.api_keys) - 1:
             self.active_key_index += 1
-            print(f"\n[ALERT] 1. API Anahtarının kotası doldu! Şarjör değiştiriliyor... 2. Anahtara (Yedek) geçildi!")
+            print(f"\n[ALERT] Quota limit reached for API Key 1. Switching to backup API Key (Key 2).")
             return True
         else:
-            print(f"\n[CRITICAL] Tüm API hesaplarının kotası doldu! Lojistik destek kesildi.")
+            print(f"\n[CRITICAL] All API accounts have reached their daily quota limits.")
             return False
 
     def fetch_tomtom_data(self, city_name, base_lat, base_lon):
@@ -82,7 +82,7 @@ class TrafficFetcher:
                 try:
                     response = requests.get(url, timeout=5)
                     
-                    if response.status_code == 200: # Başarılı atış
+                    if response.status_code == 200: 
                         data = response.json()
                         current_speed = data['flowSegmentData']['currentSpeed']
                         free_flow = data['flowSegmentData']['freeFlowSpeed']
@@ -93,14 +93,14 @@ class TrafficFetcher:
                             valid_points += 1
                         success = True 
                         
-                    elif response.status_code in [403, 429]: # Kota aşıldı hatası!
-                        # Yedek anahtara geçmeyi dene
+                    elif response.status_code in [403, 429]: # Quota exceeded error
+                        # Attempt failover to backup key
                         if not self.switch_key(): 
-                            return 0 # Yedek de bittiyse şehri atla
-                        # Yedek anahtara geçildiyse "while" döngüsü bu noktayı yeni anahtarla tekrar vurmayı dener
+                            return 0 # Skip region if all quotas are exhausted
+                        # Loop restarts and retries the same coordinates with the new key
                         
                     else:
-                        success = True # Farklı bir anlık sunucu hatasıysa döngüde takılmamak için atla
+                        success = True # Skip coordinate on other server errors to prevent infinite loops
                         
                 except Exception:
                     success = True 
@@ -113,7 +113,7 @@ class TrafficFetcher:
         return 0
 
     def collect_and_save(self):
-        print(f"[INFO] Çoklu API Sistemi Devrede! Akıllı tarama başlatıldı...")
+        print(f"[INFO] API Failover System Active. Fetching data...")
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -131,16 +131,15 @@ class TrafficFetcher:
             
         conn.commit()
         conn.close()
-        print(f"[SUCCESS] Veri tabanı güncellendi! Toplam il: {success_count}/81\n")
+        print(f"[SUCCESS] Database updated! Total provinces: {success_count}/81\n")
 
 if __name__ == "__main__":
     fetcher = TrafficFetcher()
     
-    # Sistemin çift hesapla test atışı
+    # Initial data fetch upon startup
     fetcher.collect_and_save()
     
-    # Artık elimizde 5000 limit var! Zamanlayıcıyı daha özgürce kullanabiliriz.
-    # Sabah, öğle, akşam üzeri ve gece yoklamaları.
+    # Schedule data collection during peak traffic hours
     schedule.every().day.at("07:00").do(fetcher.collect_and_save)
     schedule.every().day.at("08:00").do(fetcher.collect_and_save)
     schedule.every().day.at("09:00").do(fetcher.collect_and_save)
@@ -150,8 +149,7 @@ if __name__ == "__main__":
     schedule.every().day.at("19:00").do(fetcher.collect_and_save)
     schedule.every().day.at("20:00").do(fetcher.collect_and_save)
     
-    print("\n[SYSTEM] 🎯 Çift API'li Akıllı Zamanlayıcı Aktif!")
-    print("[SYSTEM] Kotamız 5000'e çıktığı için günde 8 pik saatte geniş tarama yapılacaktır.")
+    print("[SYSTEM] Scheduler active. Scanning will be conducted during 8 peak hours.")
     
     while True:
         schedule.run_pending()

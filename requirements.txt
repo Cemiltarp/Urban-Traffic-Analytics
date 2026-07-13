@@ -1,4 +1,7 @@
 streamlit
 pandas
-numpy
 pydeck
+requests
+schedule
+python-dotenv
+streamlit-autorefresh

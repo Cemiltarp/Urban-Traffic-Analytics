@@ -7,6 +7,13 @@
 
 A highly scalable, real-time traffic congestion analytics dashboard monitoring 81 provinces in Turkey. This system leverages dynamic spatial grid sampling and a dual-API failover architecture to provide resilient and continuous data fetching.
 
+## 🌐 Live Demo & 24/7 Cloud Deployment
+The system is successfully deployed on Streamlit Community Cloud and runs autonomously 24/7.
+👉 **[Click here to view the live tactical dashboard](https://urban-traffic-analytics-aarmhedmtqkx8gxjd5dmbf.streamlit.app)**
+
+<img width="1827" height="420" alt="image" src="https://github.com/user-attachments/assets/aea1f10d-0538-4068-8c59-32b6fedc8ac2" />
+<img width="1811" height="948" alt="image" src="https://github.com/user-attachments/assets/48eef6ea-a3ae-4937-9cbf-b4174e3d88e9" />
+
 ##  Key Features
 
 * **Dual-API Failover Mechanism:** Built-in load balancing utilizing multiple TomTom API keys to bypass daily quota limitations. The system automatically switches to a backup API key when a `429 Too Many Requests` error is encountered.

@@ -11,7 +11,7 @@ The calculations are based on the province's capacity.
 
 ## 🌐 Live Demo & 24/7 Cloud Deployment
 The system is successfully deployed on Streamlit Community Cloud and runs autonomously 24/7.
-👉 **[Click here to view the live tactical dashboard](https://urban-traffic-analytics-aarmhedmtqkx8gxjd5dmbf.streamlit.app)**
+👉 **[Click here to view the live dashboard](https://urban-traffic-analytics-aarmhedmtqkx8gxjd5dmbf.streamlit.app)**
 
 <img width="1827" height="420" alt="image" src="https://github.com/user-attachments/assets/aea1f10d-0538-4068-8c59-32b6fedc8ac2" />
 <img width="1811" height="948" alt="image" src="https://github.com/user-attachments/assets/48eef6ea-a3ae-4937-9cbf-b4174e3d88e9" />

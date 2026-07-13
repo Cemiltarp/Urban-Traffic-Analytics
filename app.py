@@ -1,80 +1,89 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
+import sqlite3
 import os
+from src.cities import CITIES # 81 ilin koordinatlarını buradan çekiyoruz
 
-# Tüm ekranı kaplayan gerçek bir dashboard görünümü
 st.set_page_config(page_title="Urban Traffic Analytics", page_icon="🚦", layout="wide")
 
 st.title("🚦 Urban Traffic Analytics Dashboard")
-st.markdown("Türkiye geneli saatlik trafik yoğunluğu analiz ve simülasyon platformu.")
+st.markdown("Türkiye geneli 81 ilin gerçek zamanlı trafik yoğunluğu analiz platformu.")
 
-@st.cache_data
+# Veritabanından veriyi çekme (ttl=60 ile her 1 dakikada bir önbelleği yeniler)
+@st.cache_data(ttl=60)
 def load_data():
-    file_path = "data/processed/hourly_traffic_simulation.csv"
-    if not os.path.exists(file_path):
+    db_path = "data/traffic_history.db"
+    if not os.path.exists(db_path):
         return None
     
-    df = pd.read_csv(file_path)
+    # SQLite veritabanına bağlanıp tüm tabloyu okuyoruz
+    conn = sqlite3.connect(db_path)
+    df = pd.read_sql_query("SELECT * FROM traffic_data", conn)
+    conn.close()
     
-    coords = {
-        "Istanbul": {"lat": 41.0082, "lon": 28.9784},
-        "Ankara": {"lat": 39.9334, "lon": 32.8597},
-        "Izmir": {"lat": 38.4192, "lon": 27.1287},
-        "Bursa": {"lat": 40.1826, "lon": 29.0669},
-        "Antalya": {"lat": 36.8969, "lon": 30.7133}
-    }
-    
-    df['lat'] = df['province_name'].map(lambda x: coords.get(x, {}).get('lat', 39.0))
-    df['lon'] = df['province_name'].map(lambda x: coords.get(x, {}).get('lon', 35.0))
+    # Şehir isimlerini eşleştirerek koordinatları (lat, lon) DataFrame'e ekliyoruz
+    df['lat'] = df['province_name'].map(lambda x: CITIES.get(x, {}).get('lat', 39.0))
+    df['lon'] = df['province_name'].map(lambda x: CITIES.get(x, {}).get('lon', 35.0))
     
     return df
 
 df = load_data()
 
-if df is None:
-    st.error("[SYSTEM ERROR] Data not found! Please run `python src/simulator.py` first.")
+if df is None or df.empty:
+    st.error("[SYSTEM ERROR] Veritabanı bulunamadı veya boş! Lütfen `python src/data_fetcher.py` komutunu çalıştırın.")
 else:
-    # Sol Menü (Kontrolcü)
-    st.sidebar.header("🕹️ Kontrol Paneli")
-    selected_hour = st.sidebar.slider("Günün Saatini Kaydır", min_value=0, max_value=23, value=8, step=1)
+    st.sidebar.header("🕹️ Zaman Makinesi")
     
-    filtered_df = df[df['hour'] == selected_hour]
-    total_traffic = filtered_df['active_vehicles'].sum()
-    max_city = filtered_df.loc[filtered_df['active_vehicles'].idxmax()]['province_name']
+    # Veritabanındaki çekilmiş veri saatlerini al ve en yenisi en üstte olacak şekilde sırala
+    timestamps = sorted(df['timestamp'].unique(), reverse=True)
     
-    # Şık Metrik Kutucukları (Dashboard Tasarımı)
-    col1, col2, col3 = st.columns(3)
-    col1.metric(label="Seçilen Saat", value=f"{selected_hour:02d}:00")
-    col2.metric(label="Toplam Aktif Araç", value=f"{total_traffic:,}")
-    col3.metric(label="En Yoğun Şehir", value=max_city)
-    
-    st.markdown("---")
-    
-    # Silindirler (ColumnLayer) yerine Organik Isı Haritası (HeatmapLayer)
-    layer = pdk.Layer(
-        "HeatmapLayer",
-        data=filtered_df,
-        opacity=0.8,
-        get_position=["lon", "lat"],
-        get_weight="active_vehicles",
-        radiusPixels=60, # Yayılım büyüklüğü
-    )
+    if not timestamps:
+        st.warning("Henüz hiç trafik verisi kaydedilmemiş.")
+    else:
+        # Kullanıcıya daha önce kaydedilmiş saatleri seçtir (Geriye sarma özelliği)
+        selected_time = st.sidebar.selectbox("Geçmişe Git (Zaman Damgası)", timestamps)
+        
+        # Seçilen saate göre veriyi filtrele
+        filtered_df = df[df['timestamp'] == selected_time]
+        total_traffic = filtered_df['active_vehicles'].sum()
+        
+        # En yoğun şehri bul
+        max_city = "Bilinmiyor"
+        if not filtered_df.empty:
+            max_city = filtered_df.loc[filtered_df['active_vehicles'].idxmax()]['province_name']
+        
+        # Metrik Kutucukları
+        col1, col2, col3 = st.columns(3)
+        col1.metric(label="Seçilen An", value=selected_time.split(" ")[1]) # Sadece saati göster
+        col2.metric(label="Toplam Aktif Araç", value=f"{total_traffic:,}")
+        col3.metric(label="En Yoğun Şehir", value=max_city)
+        
+        st.markdown("---")
+        
+        # 81 ili kapsayan ısı haritası
+        layer = pdk.Layer(
+            "HeatmapLayer",
+            data=filtered_df,
+            opacity=0.8,
+            get_position=["lon", "lat"],
+            get_weight="active_vehicles",
+            radiusPixels=45, # Tüm Türkiye'ye sığması için biraz küçülttük
+        )
 
-    # Türkiye sınırlarına kamerayı kilitleme
-    view_state = pdk.ViewState(
-        latitude=39.0, 
-        longitude=35.0, 
-        zoom=5, 
-        min_zoom=4.5,  # Uzaydan bakmayı engeller (Türkiye dışına çıkılamaz)
-        max_zoom=8,    # Mahalle arasına kadar inmeyi engeller
-        pitch=30,      # Daha estetik, hafif eğimli bir 3D açı
-        bearing=0
-    )
+        view_state = pdk.ViewState(
+            latitude=39.0, 
+            longitude=35.0, 
+            zoom=4.8, 
+            min_zoom=4.5,
+            max_zoom=8,
+            pitch=30,
+            bearing=0
+        )
 
-    st.pydeck_chart(pdk.Deck(
-        map_provider="carto",
-        map_style="dark",
-        layers=[layer],
-        initial_view_state=view_state,
-    ))
+        st.pydeck_chart(pdk.Deck(
+            map_provider="carto",
+            map_style="dark",
+            layers=[layer],
+            initial_view_state=view_state,
+        ))

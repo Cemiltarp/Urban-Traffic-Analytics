@@ -4,7 +4,7 @@ import requests
 import time
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
-from cities import CITIES # 81 ilin listesini dışarıdan alıyoruz!
+from cities import CITIES 
 
 load_dotenv(find_dotenv())
 TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
@@ -18,19 +18,20 @@ class TrafficFetcher:
         os.makedirs("data", exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        # Tabloyu 'congestion_level' (Sıkışıklık Yüzdesi) olarak güncelledik
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS traffic_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME,
                 province_name TEXT,
-                active_vehicles INTEGER,
+                congestion_level INTEGER,
                 source TEXT
             )
         ''')
         conn.commit()
         conn.close()
 
-    def fetch_tomtom_data(self, lat, lon):
+    def fetch_tomtom_data(self, city_name, lat, lon):
         url = f"https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json?key={TOMTOM_API_KEY}&point={lat},{lon}"
         try:
             response = requests.get(url, timeout=5)
@@ -38,17 +39,17 @@ class TrafficFetcher:
                 data = response.json()
                 current_speed = data['flowSegmentData']['currentSpeed']
                 free_flow = data['flowSegmentData']['freeFlowSpeed']
-                traffic_ratio = 1 - (current_speed / free_flow) if free_flow > 0 else 0
                 
-                # Her ilin kendi ölçeğine göre ortalama bir araç bazı (Metropollerde daha yüksek vb. eklenebilir)
-                base_vehicles = 100000 
-                return int(base_vehicles * (1 + traffic_ratio))
+                # Sadece saf bir yüzde hesabı: Yol yüzde kaç kilitli? (0-100 arası)
+                if free_flow > 0:
+                    congestion = int(((free_flow - current_speed) / free_flow) * 100)
+                    return max(0, congestion)
         except Exception as e:
-            print(f"[ERROR] Bağlantı hatası: {e}")
+            print(f"[ERROR] {city_name} için bağlantı hatası: {e}")
         return 0
 
     def collect_and_save(self):
-        print(f"[INFO] {len(CITIES)} il için TomTom uydularından canlı veri çekiliyor...")
+        print(f"[INFO] 81 il için SAF TomTom trafik sıkışıklık verisi çekiliyor...")
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -56,19 +57,18 @@ class TrafficFetcher:
         success_count = 0
 
         for city, coords in CITIES.items():
-            vehicles = self.fetch_tomtom_data(coords["lat"], coords["lon"])
+            congestion = self.fetch_tomtom_data(city, coords["lat"], coords["lon"])
             
             cursor.execute(
-                "INSERT INTO traffic_data (timestamp, province_name, active_vehicles, source) VALUES (?, ?, ?, ?)",
-                (current_time, city, vehicles, "TomTom")
+                "INSERT INTO traffic_data (timestamp, province_name, congestion_level, source) VALUES (?, ?, ?, ?)",
+                (current_time, city, congestion, "TomTom")
             )
             success_count += 1
-            # Sunucuyu boğmamak için aralara salise bazında bekleme koyuyoruz
             time.sleep(0.1)
 
         conn.commit()
         conn.close()
-        print(f"[SUCCESS] Veritabanı güncellendi! Başarıyla çekilen il sayısı: {success_count}/{len(CITIES)}")
+        print(f"[SUCCESS] Temiz veri güncellendi! {success_count}/81")
 
 if __name__ == "__main__":
     fetcher = TrafficFetcher()

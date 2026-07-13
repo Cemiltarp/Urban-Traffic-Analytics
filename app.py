@@ -3,87 +3,75 @@ import pandas as pd
 import pydeck as pdk
 import sqlite3
 import os
-from src.cities import CITIES # 81 ilin koordinatlarını buradan çekiyoruz
+from src.cities import CITIES
 
 st.set_page_config(page_title="Urban Traffic Analytics", page_icon="🚦", layout="wide")
 
 st.title("🚦 Urban Traffic Analytics Dashboard")
-st.markdown("Türkiye geneli 81 ilin gerçek zamanlı trafik yoğunluğu analiz platformu.")
+st.markdown("Türkiye geneli 81 ilin gerçek zamanlı trafik sıkışıklık yüzdesi.")
 
-# Veritabanından veriyi çekme (ttl=60 ile her 1 dakikada bir önbelleği yeniler)
 @st.cache_data(ttl=60)
 def load_data():
     db_path = "data/traffic_history.db"
     if not os.path.exists(db_path):
         return None
     
-    # SQLite veritabanına bağlanıp tüm tabloyu okuyoruz
     conn = sqlite3.connect(db_path)
     df = pd.read_sql_query("SELECT * FROM traffic_data", conn)
     conn.close()
     
-    # Şehir isimlerini eşleştirerek koordinatları (lat, lon) DataFrame'e ekliyoruz
     df['lat'] = df['province_name'].map(lambda x: CITIES.get(x, {}).get('lat', 39.0))
     df['lon'] = df['province_name'].map(lambda x: CITIES.get(x, {}).get('lon', 35.0))
+    
+    # Trafik yüzdesine göre renk ataması (Yeşilden Kırmızıya)
+    df['color_r'] = (df['congestion_level'] * 2.55).astype(int)
+    df['color_g'] = ((100 - df['congestion_level']) * 2.55).astype(int)
     
     return df
 
 df = load_data()
 
 if df is None or df.empty:
-    st.error("[SYSTEM ERROR] Veritabanı bulunamadı veya boş! Lütfen `python src/data_fetcher.py` komutunu çalıştırın.")
+    st.error("[SYSTEM ERROR] Veritabanı bulunamadı. Lütfen fetcher'ı çalıştırın.")
 else:
     st.sidebar.header("🕹️ Zaman Makinesi")
-    
-    # Veritabanındaki çekilmiş veri saatlerini al ve en yenisi en üstte olacak şekilde sırala
     timestamps = sorted(df['timestamp'].unique(), reverse=True)
     
     if not timestamps:
-        st.warning("Henüz hiç trafik verisi kaydedilmemiş.")
+        st.warning("Veri bekleniyor...")
     else:
-        # Kullanıcıya daha önce kaydedilmiş saatleri seçtir (Geriye sarma özelliği)
         selected_time = st.sidebar.selectbox("Geçmişe Git (Zaman Damgası)", timestamps)
-        
-        # Seçilen saate göre veriyi filtrele
         filtered_df = df[df['timestamp'] == selected_time]
-        total_traffic = filtered_df['active_vehicles'].sum()
         
-        # En yoğun şehri bul
-        max_city = "Bilinmiyor"
-        if not filtered_df.empty:
-            max_city = filtered_df.loc[filtered_df['active_vehicles'].idxmax()]['province_name']
+        # Ortalama sıkışıklığı hesapla
+        avg_congestion = int(filtered_df['congestion_level'].mean())
+        max_city = filtered_df.loc[filtered_df['congestion_level'].idxmax()]['province_name']
+        max_value = filtered_df['congestion_level'].max()
         
-        # Metrik Kutucukları
         col1, col2, col3 = st.columns(3)
-        col1.metric(label="Seçilen An", value=selected_time.split(" ")[1]) # Sadece saati göster
-        col2.metric(label="Toplam Aktif Araç", value=f"{total_traffic:,}")
-        col3.metric(label="En Yoğun Şehir", value=max_city)
+        col1.metric(label="Seçilen An", value=selected_time.split(" ")[1])
+        col2.metric(label="Türkiye Ortalaması", value=f"% {avg_congestion}")
+        col3.metric(label="En Tıkalı Şehir", value=f"{max_city} (%{max_value})")
         
         st.markdown("---")
         
-        # 81 ili kapsayan ısı haritası
+        # Birbirine girmeyen, şehir bazlı keskin noktalar (Scatterplot)
         layer = pdk.Layer(
-            "HeatmapLayer",
+            "ScatterplotLayer",
             data=filtered_df,
-            opacity=0.8,
             get_position=["lon", "lat"],
-            get_weight="active_vehicles",
-            radiusPixels=45, # Tüm Türkiye'ye sığması için biraz küçülttük
+            get_radius=18000, # Nokta boyutu
+            get_fill_color="[color_r, color_g, 0, 200]",
+            pickable=True,
+            auto_highlight=True
         )
 
         view_state = pdk.ViewState(
-            latitude=39.0, 
-            longitude=35.0, 
-            zoom=4.8, 
-            min_zoom=4.5,
-            max_zoom=8,
-            pitch=30,
-            bearing=0
+            latitude=39.0, longitude=35.0, zoom=4.8, min_zoom=4.5, max_zoom=8, pitch=30, bearing=0
         )
 
         st.pydeck_chart(pdk.Deck(
-            map_provider="carto",
-            map_style="dark",
-            layers=[layer],
+            map_provider="carto", map_style="dark", layers=[layer],
             initial_view_state=view_state,
+            tooltip={"text": "{province_name}\nTrafik Sıkışıklığı: %{congestion_level}"}
         ))

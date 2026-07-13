@@ -53,7 +53,7 @@ TOMTOM_API_KEY_2=your_backup_api_key_here
 
 python src/data_fetcher.py
 ```
-5. **Launch the Dashboard (Frontend):
+5. **Launch the Dashboard (Frontend)**:
 ```bash
 streamlit run app.py
 ```

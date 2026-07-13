@@ -7,6 +7,8 @@
 
 A highly scalable, real-time traffic congestion analytics dashboard monitoring 81 provinces in Turkey. This system leverages dynamic spatial grid sampling and a dual-API failover architecture to provide resilient and continuous data fetching.
 
+The calculations are based on the province's capacity. 
+
 ## 🌐 Live Demo & 24/7 Cloud Deployment
 The system is successfully deployed on Streamlit Community Cloud and runs autonomously 24/7.
 👉 **[Click here to view the live tactical dashboard](https://urban-traffic-analytics-aarmhedmtqkx8gxjd5dmbf.streamlit.app)**
